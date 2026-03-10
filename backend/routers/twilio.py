@@ -30,7 +30,7 @@ async def find_scenario_by_phone(
 @router.api_route("/twilio/incoming", methods=["GET", "POST"])
 async def handle_incoming_call():
     response = VoiceResponse()
-    response.say("Hello. This is a test message.", voice="alice")
+    response.say("これはテストです。", voice="alice", language="ja-JP")
     response.pause(length=3)
     return Response(content=str(response), media_type="application/xml")
 
