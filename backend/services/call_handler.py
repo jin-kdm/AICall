@@ -12,6 +12,7 @@ from backend.models import Node, NodeType, Scenario
 from backend.services.audio_utils import mulaw_8khz_to_pcm_16khz
 from backend.services.branch_service import create_branch_service
 from backend.services.stt_service import create_stt_service
+from backend.services.storage_service import create_storage_service, get_cached_audio
 from backend.services.vad_service import VADService
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class CallHandler:
         self.vad = VADService(settings)
         self.stt = create_stt_service(settings)
         self.branch = create_branch_service(settings)
+        self.storage = create_storage_service(settings)
 
         self.mark_counter = 0
         self.pending_marks: dict[str, str] = {}
@@ -105,8 +107,7 @@ class CallHandler:
             self.vad.reset()
             return
 
-        with open(node.audio_cache.file_path, "rb") as f:
-            raw_mulaw = f.read()
+        raw_mulaw = await get_cached_audio(self.storage, node.audio_cache.file_path)
 
         logger.info(
             "Playing audio for node %s (%d bytes)", node.id, len(raw_mulaw)

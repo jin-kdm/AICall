@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Database
+    # Database (PostgreSQL for production, SQLite for local dev)
     database_url: str = "sqlite+aiosqlite:///./aicall.db"
 
     # OpenAI
@@ -33,12 +33,28 @@ class Settings(BaseSettings):
     # Audio cache
     audio_cache_dir: str = "./audio_cache"
 
+    # Supabase Storage (for cloud audio cache)
+    supabase_url: str = ""
+    supabase_key: str = ""
+    supabase_storage_bucket: str = "audio-cache"
+
     # Server
     server_host: str = "0.0.0.0"
     server_port: int = 8000
     ws_base_url: str = "wss://localhost:8000"
 
+    # CORS
+    cors_origins: str = "http://localhost:5173"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def use_supabase_storage(self) -> bool:
+        return bool(self.supabase_url and self.supabase_key)
 
 
 settings = Settings()

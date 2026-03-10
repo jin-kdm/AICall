@@ -1,5 +1,4 @@
 import hashlib
-import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
@@ -9,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import Settings
 from backend.models import AudioCache, AudioGenerationResult, Scenario
 from backend.services.audio_utils import pcm_to_mulaw_8khz
+from backend.services.storage_service import (
+    create_storage_service,
+    invalidate_audio_cache,
+)
 
 
 class TTSService(ABC):
@@ -68,6 +71,7 @@ async def generate_audio_for_scenario(
 ) -> AudioGenerationResult:
     """Pre-generate all TTS audio for a scenario's nodes."""
     tts = create_tts_service(settings)
+    storage = create_storage_service(settings)
     result = AudioGenerationResult(generated=0, skipped=0, errors=[])
 
     for node in scenario.nodes:
@@ -87,18 +91,17 @@ async def generate_audio_for_scenario(
             mulaw_data = pcm_to_mulaw_8khz(pcm_data, tts.get_sample_rate())
 
             filename = f"{scenario.id}_{node.id}.mulaw"
-            filepath = os.path.join(settings.audio_cache_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(mulaw_data)
+            stored_path = await storage.upload(filename, mulaw_data)
+            invalidate_audio_cache(stored_path)
 
             if node.audio_cache:
-                node.audio_cache.file_path = filepath
+                node.audio_cache.file_path = stored_path
                 node.audio_cache.script_hash = script_hash
                 node.audio_cache.generated_at = datetime.now(timezone.utc)
             else:
                 cache = AudioCache(
                     node_id=node.id,
-                    file_path=filepath,
+                    file_path=stored_path,
                     format="mulaw",
                     script_hash=script_hash,
                 )
