@@ -27,7 +27,7 @@ async def find_scenario_by_phone(
     return result.scalar_one_or_none()
 
 
-@router.post("/twilio/incoming")
+@router.api_route("/twilio/incoming", methods=["GET", "POST"])
 async def handle_incoming_call():
     response = VoiceResponse()
     response.say("テスト応答です。", language="ja-JP")
