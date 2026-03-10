@@ -18,12 +18,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AICall", lifespan=lifespan)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-    @app.get("/buildcheck")
+
+
+@app.get("/buildcheck")
 async def buildcheck():
-    return {"version": "6e4bf43"}
+    return {"version": "0dd1fff"}
+
 
 app.add_middleware(
     CORSMiddleware,
