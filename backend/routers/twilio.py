@@ -30,8 +30,8 @@ async def find_scenario_by_phone(
 @router.api_route("/twilio/incoming", methods=["GET", "POST"])
 async def handle_incoming_call():
     response = VoiceResponse()
-    response.play("https://api.twilio.com/cowbell.mp3")
-    response.pause(length=5)
+    response.say("Hello. This is a test message.", voice="alice")
+    response.pause(length=3)
     return Response(content=str(response), media_type="application/xml")
 
 @router.websocket("/ws/call/{scenario_id}")
