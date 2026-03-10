@@ -28,41 +28,11 @@ async def find_scenario_by_phone(
 
 
 @router.post("/twilio/incoming")
-async def handle_incoming_call(
-    request: Request, db: AsyncSession = Depends(get_db)
-):
-    """Twilio webhook for incoming calls. Returns TwiML to connect Media Stream."""
-    form = await request.form()
-    to_number = form.get("To", "")
-    call_sid = form.get("CallSid", "")
-
-    logger.info("Incoming call: To=%s, CallSid=%s", to_number, call_sid)
-
-    scenario = await find_scenario_by_phone(db, to_number)
-
+async def handle_incoming_call():
     response = VoiceResponse()
-
-    if not scenario:
-        logger.warning("No scenario for phone number %s", to_number)
-        response.say(
-            "Sorry, this number is not configured.",
-            language="ja-JP",
-        )
-        response.hangup()
-    else:
-        connect = Connect()
-        stream = Stream(
-            url=f"{settings.ws_base_url}/ws/call/{scenario.id}"
-        )
-        stream.parameter(name="callSid", value=call_sid)
-        connect.append(stream)
-        response.append(connect)
-        logger.info(
-            "Connecting call to scenario %d (%s)", scenario.id, scenario.name
-        )
-
+    response.say("テスト応答です。", language="ja-JP")
+    response.hangup()
     return Response(content=str(response), media_type="application/xml")
-
 
 @router.websocket("/ws/call/{scenario_id}")
 async def websocket_call(websocket: WebSocket, scenario_id: int):
