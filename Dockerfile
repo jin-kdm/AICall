@@ -2,12 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies for webrtcvad
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
+    libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install setuptools (needed by webrtcvad for pkg_resources)
 RUN pip install --no-cache-dir 'setuptools<81'
 
 COPY backend/requirements.txt .
