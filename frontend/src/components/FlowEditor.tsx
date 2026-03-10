@@ -91,7 +91,7 @@ export function FlowEditor({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [savePhase, setSavePhase] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const nodeCounter = useRef(0);
 
@@ -144,47 +144,37 @@ export function FlowEditor({
     setSaving(true);
     setStatusMsg('');
     try {
-      const apiNodes = nodes.map(flowNodeToApiNode);
-      const apiEdges = edges.map(flowEdgeToApiEdge);
-      await api.updateNodes(scenarioId, apiNodes);
-      await api.updateEdges(scenarioId, apiEdges);
-      setIsDirty(false);
-      setStatusMsg('保存しました');
-      setTimeout(() => setStatusMsg(''), 2000);
-    } catch (e) {
-      setStatusMsg(`保存エラー: ${e}`);
-    } finally {
-      setSaving(false);
-    }
-  }, [nodes, edges, scenarioId]);
-
-  const onGenerateAudio = useCallback(async () => {
-    setGenerating(true);
-    setStatusMsg('');
-    try {
-      // Save first
+      // Step 1: Save nodes and edges
+      setSavePhase('保存中...');
       const apiNodes = nodes.map(flowNodeToApiNode);
       const apiEdges = edges.map(flowEdgeToApiEdge);
       await api.updateNodes(scenarioId, apiNodes);
       await api.updateEdges(scenarioId, apiEdges);
       setIsDirty(false);
 
+      // Step 2: Auto-generate audio
+      setSavePhase('音声生成中...');
       const result = await api.generateAudio(scenarioId);
+
+      // Step 3: Build status message
+      const parts: string[] = [];
+      if (result.generated > 0) parts.push(`${result.generated}件生成`);
+      if (result.skipped > 0) parts.push(`${result.skipped}件スキップ`);
+      if (result.errors.length > 0)
+        parts.push(`${result.errors.length}件エラー`);
       setStatusMsg(
-        `音声生成完了: ${result.generated}件生成, ${result.skipped}件スキップ` +
-          (result.errors.length > 0
-            ? `, ${result.errors.length}件エラー`
-            : ''),
+        `保存・音声生成完了${parts.length > 0 ? ': ' + parts.join(', ') : ''}`,
       );
 
-      // Reload to update hasAudio flags
+      // Step 4: Reload to update hasAudio flags
       const scenario = await api.getScenario(scenarioId);
       setNodes(scenario.nodes.map(apiNodeToFlowNode));
       setEdges(scenario.edges.map(apiEdgeToFlowEdge));
     } catch (e) {
-      setStatusMsg(`音声生成エラー: ${e}`);
+      setStatusMsg(`保存エラー: ${e}`);
     } finally {
-      setGenerating(false);
+      setSaving(false);
+      setSavePhase('');
     }
   }, [nodes, edges, scenarioId, setNodes, setEdges]);
 
@@ -238,18 +228,7 @@ export function FlowEditor({
               color: '#fff',
             }}
           >
-            {saving ? '保存中...' : '保存'}
-          </button>
-          <button
-            onClick={onGenerateAudio}
-            disabled={generating}
-            style={{
-              ...toolbarBtnStyle,
-              background: '#8b5cf6',
-              color: '#fff',
-            }}
-          >
-            {generating ? '生成中...' : '音声生成'}
+            {saving ? savePhase || '保存中...' : '保存'}
           </button>
           {statusMsg && (
             <span style={{ fontSize: 12, color: '#6b7280' }}>{statusMsg}</span>
