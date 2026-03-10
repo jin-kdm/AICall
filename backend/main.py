@@ -21,6 +21,9 @@ app = FastAPI(title="AICall", lifespan=lifespan)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+    @app.get("/buildcheck")
+async def buildcheck():
+    return {"version": "6e4bf43"}
 
 app.add_middleware(
     CORSMiddleware,
