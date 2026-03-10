@@ -1,8 +1,14 @@
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 from backend.config import settings
 from backend.database import init_db
@@ -20,6 +26,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AICall", lifespan=lifespan)
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logger.error("Unhandled error: %s\n%s", exc, tb)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": type(exc).__name__},
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -27,7 +43,7 @@ async def health():
 
 @app.get("/buildcheck")
 async def buildcheck():
-    return {"version": "0dd1fff"}
+    return {"version": "2785c2c"}
 
 
 app.add_middleware(
