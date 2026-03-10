@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from backend.models import _utcnow
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -110,7 +110,7 @@ async def update_scenario(
     if payload.twilio_phone_number is not None:
         scenario.twilio_phone_number = payload.twilio_phone_number
 
-    scenario.updated_at = datetime.now(timezone.utc)
+    scenario.updated_at = _utcnow()
     await db.commit()
     await db.refresh(scenario)
     return _scenario_to_response(scenario)
@@ -170,7 +170,7 @@ async def batch_update_nodes(
             )
             db.add(node)
 
-    scenario.updated_at = datetime.now(timezone.utc)
+    scenario.updated_at = _utcnow()
     await db.commit()
     return {"ok": True}
 
@@ -213,7 +213,7 @@ async def batch_update_edges(
             )
             db.add(edge)
 
-    scenario.updated_at = datetime.now(timezone.utc)
+    scenario.updated_at = _utcnow()
     await db.commit()
     return {"ok": True}
 

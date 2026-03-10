@@ -1,6 +1,6 @@
 import hashlib
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from backend.models import _utcnow
 
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +97,7 @@ async def generate_audio_for_scenario(
             if node.audio_cache:
                 node.audio_cache.file_path = stored_path
                 node.audio_cache.script_hash = script_hash
-                node.audio_cache.generated_at = datetime.now(timezone.utc)
+                node.audio_cache.generated_at = _utcnow()
             else:
                 cache = AudioCache(
                     node_id=node.id,

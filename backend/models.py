@@ -2,10 +2,15 @@ import enum
 from datetime import datetime, timezone
 
 from pydantic import BaseModel
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
+
+
+def _utcnow() -> datetime:
+    """Return timezone-aware UTC datetime (works with both SQLite and PostgreSQL)."""
+    return datetime.now(timezone.utc)
 
 
 # --- Enums ---
@@ -30,11 +35,10 @@ class Scenario(Base):
         String(20), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=_utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
 
     nodes: Mapped[list["Node"]] = relationship(
@@ -97,7 +101,7 @@ class AudioCache(Base):
     format: Mapped[str] = mapped_column(String(20), default="mulaw")
     script_hash: Mapped[str] = mapped_column(String(64))
     generated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=_utcnow
     )
 
     node: Mapped["Node"] = relationship(back_populates="audio_cache")
