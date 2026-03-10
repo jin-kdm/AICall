@@ -57,18 +57,32 @@ class SupabaseStorageService(StorageService):
         self._ensure_bucket()
 
     def _ensure_bucket(self):
+        """Ensure the storage bucket exists. Raises if it cannot be created."""
         try:
             self.client.storage.get_bucket(self.bucket)
+            logger.info("Supabase bucket '%s' found", self.bucket)
+            return
         except Exception:
+            pass
+
+        # Try to create with public: True (avoids RLS issues with anon key)
+        for public in [False, True]:
             try:
                 self.client.storage.create_bucket(
-                    self.bucket, options={"public": False}
+                    self.bucket,
+                    options={"public": public},
                 )
-                logger.info("Created Supabase storage bucket: %s", self.bucket)
-            except Exception:
-                logger.warning(
-                    "Could not create bucket %s (may already exist)", self.bucket
+                logger.info(
+                    "Created Supabase bucket '%s' (public=%s)", self.bucket, public
                 )
+                return
+            except Exception as e:
+                logger.debug("Bucket create attempt (public=%s): %s", public, e)
+
+        raise RuntimeError(
+            f"Cannot access or create Supabase bucket '{self.bucket}'. "
+            "Please create it manually in the Supabase dashboard."
+        )
 
     async def upload(self, path: str, data: bytes) -> str:
         # Remove existing file first (upsert)
@@ -112,9 +126,15 @@ def invalidate_audio_cache(path: str) -> None:
 
 def create_storage_service(settings: Settings) -> StorageService:
     if settings.use_supabase_storage:
-        return SupabaseStorageService(
-            settings.supabase_url,
-            settings.supabase_key,
-            settings.supabase_storage_bucket,
-        )
+        try:
+            return SupabaseStorageService(
+                settings.supabase_url,
+                settings.supabase_key,
+                settings.supabase_storage_bucket,
+            )
+        except Exception as e:
+            logger.warning(
+                "Supabase Storage unavailable (%s), falling back to local storage",
+                e,
+            )
     return LocalStorageService(settings.audio_cache_dir)
