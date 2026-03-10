@@ -30,10 +30,10 @@ async def find_scenario_by_phone(
 @router.api_route("/twilio/incoming", methods=["GET", "POST"])
 async def handle_incoming_call():
     response = VoiceResponse()
-    response.say("This is a test.")
+    response.play("https://api.twilio.com/cowbell.mp3")
     response.pause(length=5)
     return Response(content=str(response), media_type="application/xml")
-    
+
 @router.websocket("/ws/call/{scenario_id}")
 async def websocket_call(websocket: WebSocket, scenario_id: int):
     """Bidirectional Media Stream WebSocket for an active call."""
