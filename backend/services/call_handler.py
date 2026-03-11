@@ -49,9 +49,9 @@ class CallHandler:
         self.mark_counter = 0
         self.pending_marks: dict[str, str] = {}
 
-        # Barge-in requires consecutive speech frames to avoid false triggers
+        # Barge-in requires sustained speech to avoid false triggers from noise
         self.barge_in_speech_count = 0
-        self.BARGE_IN_THRESHOLD = 5  # 5 frames × 20ms = 100ms of speech needed
+        self.BARGE_IN_THRESHOLD = 150  # 150 frames × 20ms = 3 seconds of speech needed
 
     def _find_start_node(self) -> Node:
         for node in self.scenario.nodes:
