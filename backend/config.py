@@ -61,12 +61,13 @@ class Settings(BaseSettings):
     @property
     def effective_ws_base_url(self) -> str:
         """Auto-detect WebSocket URL from Railway or fall back to configured value."""
-        if self.ws_base_url:
-            return self.ws_base_url
-        # Railway provides RAILWAY_PUBLIC_DOMAIN automatically
+        # Railway provides RAILWAY_PUBLIC_DOMAIN automatically — always prefer it
+        # (WS_BASE_URL env var may contain a stale domain after redeployment)
         railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
         if railway_domain:
             return f"wss://{railway_domain}"
+        if self.ws_base_url:
+            return self.ws_base_url
         return "wss://localhost:8000"
 
 
