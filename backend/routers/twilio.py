@@ -115,10 +115,10 @@ async def websocket_call(websocket: WebSocket, scenario_id: int):
     # Log audio cache status for debugging
     for node in scenario.nodes:
         has_cache = node.audio_cache is not None
-        path = node.audio_cache.file_path if has_cache else "N/A"
+        data_size = len(node.audio_cache.audio_data) if has_cache and node.audio_cache.audio_data else 0
         logger.info(
-            "  Node %s (%s): audio_cache=%s, path=%s",
-            node.id, node.node_type.value, has_cache, path,
+            "  Node %s (%s): audio_cache=%s, audio_data=%d bytes",
+            node.id, node.node_type.value, has_cache, data_size,
         )
 
     try:

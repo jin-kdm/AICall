@@ -32,7 +32,7 @@ def _node_to_schema(node: Node) -> NodeSchema:
         node_type=node.node_type,
         position_x=node.position_x,
         position_y=node.position_y,
-        has_audio=node.audio_cache is not None,
+        has_audio=node.audio_cache is not None and node.audio_cache.audio_data is not None,
     )
 
 

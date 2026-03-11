@@ -12,7 +12,6 @@ from backend.models import Node, NodeType, Scenario
 from backend.services.audio_utils import mulaw_8khz_to_pcm_16khz
 from backend.services.branch_service import create_branch_service
 from backend.services.stt_service import create_stt_service
-from backend.services.storage_service import create_storage_service, get_cached_audio
 from backend.services.vad_service import VADService
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,6 @@ class CallHandler:
         self.vad = VADService(settings)
         self.stt = create_stt_service(settings)
         self.branch = create_branch_service(settings)
-        self.storage = create_storage_service(settings)
 
         self.mark_counter = 0
         self.pending_marks: dict[str, str] = {}
@@ -102,28 +100,18 @@ class CallHandler:
         """Send pre-generated audio for a node in chunks."""
         self.phase = CallPhase.PLAYING_AUDIO
 
-        if not node.audio_cache or not node.audio_cache.file_path:
-            logger.warning("No audio cache for node %s, skipping playback", node.id)
+        if not node.audio_cache or not node.audio_cache.audio_data:
+            logger.warning(
+                "No audio data for node %s (cache=%s), skipping playback",
+                node.id,
+                "exists" if node.audio_cache else "None",
+            )
             self.phase = CallPhase.LISTENING
             self.audio_buffer.clear()
             self.vad.reset()
             return
 
-        try:
-            raw_mulaw = await get_cached_audio(
-                self.storage, node.audio_cache.file_path
-            )
-        except Exception:
-            logger.exception(
-                "Failed to load audio for node %s (path=%s)",
-                node.id,
-                node.audio_cache.file_path,
-            )
-            # Fall through to listening so the call doesn't hang
-            self.phase = CallPhase.LISTENING
-            self.audio_buffer.clear()
-            self.vad.reset()
-            return
+        raw_mulaw = node.audio_cache.audio_data
 
         logger.info(
             "Playing audio for node %s (%d bytes, %d chunks)",

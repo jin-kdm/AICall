@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 
 from pydantic import BaseModel
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -97,9 +97,12 @@ class AudioCache(Base):
     node_id: Mapped[str] = mapped_column(
         ForeignKey("nodes.id", ondelete="CASCADE"), unique=True
     )
-    file_path: Mapped[str] = mapped_column(String(500))
+    file_path: Mapped[str] = mapped_column(String(500), default="")
     format: Mapped[str] = mapped_column(String(20), default="mulaw")
     script_hash: Mapped[str] = mapped_column(String(64))
+    audio_data: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True, default=None
+    )
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )

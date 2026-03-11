@@ -21,12 +21,15 @@ async def get_db():
         yield session
 
 
-async def _migrate_timestamps_pg(conn):
-    """Migrate TIMESTAMP WITHOUT TIME ZONE columns to WITH TIME ZONE on PostgreSQL."""
+async def _migrate_pg(conn):
+    """Apply PostgreSQL-specific migrations for existing tables."""
     migrations = [
+        # Timestamp timezone migration
         "ALTER TABLE scenarios ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE",
         "ALTER TABLE scenarios ALTER COLUMN updated_at TYPE TIMESTAMP WITH TIME ZONE",
         "ALTER TABLE audio_cache ALTER COLUMN generated_at TYPE TIMESTAMP WITH TIME ZONE",
+        # Add audio_data column for in-DB audio storage
+        "ALTER TABLE audio_cache ADD COLUMN IF NOT EXISTS audio_data BYTEA",
     ]
     for sql in migrations:
         try:
@@ -40,4 +43,4 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
         # Migrate existing PostgreSQL columns if needed
         if "postgresql" in settings.database_url:
-            await _migrate_timestamps_pg(conn)
+            await _migrate_pg(conn)

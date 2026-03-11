@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from abc import ABC, abstractmethod
 from backend.models import _utcnow
 
@@ -8,10 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import Settings
 from backend.models import AudioCache, AudioGenerationResult, Scenario
 from backend.services.audio_utils import pcm_to_mulaw_8khz
-from backend.services.storage_service import (
-    create_storage_service,
-    invalidate_audio_cache,
-)
+
+logger = logging.getLogger(__name__)
 
 
 class TTSService(ABC):
@@ -70,9 +69,12 @@ async def generate_audio_for_scenario(
     scenario: Scenario, db: AsyncSession, settings: Settings,
     force: bool = False,
 ) -> AudioGenerationResult:
-    """Pre-generate all TTS audio for a scenario's nodes."""
+    """Pre-generate all TTS audio for a scenario's nodes.
+
+    Audio is stored directly in PostgreSQL (audio_cache.audio_data) to
+    survive Railway's ephemeral filesystem across deploys.
+    """
     tts = create_tts_service(settings)
-    storage = create_storage_service(settings)
     result = AudioGenerationResult(generated=0, skipped=0, errors=[])
 
     for node in scenario.nodes:
@@ -91,25 +93,28 @@ async def generate_audio_for_scenario(
             pcm_data = await tts.synthesize(node.script)
             mulaw_data = pcm_to_mulaw_8khz(pcm_data, tts.get_sample_rate())
 
-            filename = f"{scenario.id}_{node.id}.mulaw"
-            stored_path = await storage.upload(filename, mulaw_data)
-            invalidate_audio_cache(stored_path)
+            logger.info(
+                "Generated audio for node %s: %d bytes mulaw",
+                node.id, len(mulaw_data),
+            )
 
             if node.audio_cache:
-                node.audio_cache.file_path = stored_path
+                node.audio_cache.audio_data = mulaw_data
                 node.audio_cache.script_hash = script_hash
                 node.audio_cache.generated_at = _utcnow()
             else:
                 cache = AudioCache(
                     node_id=node.id,
-                    file_path=stored_path,
+                    file_path="",
                     format="mulaw",
                     script_hash=script_hash,
+                    audio_data=mulaw_data,
                 )
                 db.add(cache)
 
             result.generated += 1
         except Exception as e:
+            logger.exception("TTS failed for node %s", node.id)
             result.errors.append({"node_id": node.id, "error": str(e)})
 
     await db.commit()
