@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, WebSocket
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
 from backend.config import settings
@@ -86,13 +86,13 @@ async def websocket_call(websocket: WebSocket, scenario_id: int):
     """Bidirectional Media Stream WebSocket for an active call."""
     await websocket.accept()
 
-    # Explicitly load all nested relationships (nodes → audio_cache, edges)
-    # so they remain available after the session closes.
+    # Load scenario structure only — NO audio_data blobs.
+    # Audio is fetched on-demand by CallHandler for faster startup.
     async with async_session() as db:
         result = await db.execute(
             select(Scenario)
             .options(
-                selectinload(Scenario.nodes).selectinload(Node.audio_cache),
+                selectinload(Scenario.nodes).noload(Node.audio_cache),
                 selectinload(Scenario.edges),
             )
             .where(Scenario.id == scenario_id)
@@ -111,15 +111,6 @@ async def websocket_call(websocket: WebSocket, scenario_id: int):
         len(scenario.nodes),
         len(scenario.edges),
     )
-
-    # Log audio cache status for debugging
-    for node in scenario.nodes:
-        has_cache = node.audio_cache is not None
-        data_size = len(node.audio_cache.audio_data) if has_cache and node.audio_cache.audio_data else 0
-        logger.info(
-            "  Node %s (%s): audio_cache=%s, audio_data=%d bytes",
-            node.id, node.node_type.value, has_cache, data_size,
-        )
 
     try:
         handler = CallHandler(websocket, scenario, settings)
