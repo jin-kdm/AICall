@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, Request, WebSocket
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
 from backend.config import settings
 from backend.database import async_session, get_db
-from backend.models import NodeType, Scenario
+from backend.models import Node, NodeType, Scenario
 from backend.services.call_handler import CallHandler
 
 logger = logging.getLogger(__name__)
@@ -85,8 +86,18 @@ async def websocket_call(websocket: WebSocket, scenario_id: int):
     """Bidirectional Media Stream WebSocket for an active call."""
     await websocket.accept()
 
+    # Explicitly load all nested relationships (nodes → audio_cache, edges)
+    # so they remain available after the session closes.
     async with async_session() as db:
-        scenario = await db.get(Scenario, scenario_id)
+        result = await db.execute(
+            select(Scenario)
+            .options(
+                selectinload(Scenario.nodes).selectinload(Node.audio_cache),
+                selectinload(Scenario.edges),
+            )
+            .where(Scenario.id == scenario_id)
+        )
+        scenario = result.scalar_one_or_none()
 
     if not scenario:
         logger.error("Scenario %d not found, closing WebSocket", scenario_id)
@@ -94,10 +105,24 @@ async def websocket_call(websocket: WebSocket, scenario_id: int):
         return
 
     logger.info(
-        "WebSocket call started for scenario %d (%s)",
+        "WebSocket call started for scenario %d (%s) — %d nodes, %d edges",
         scenario.id,
         scenario.name,
+        len(scenario.nodes),
+        len(scenario.edges),
     )
 
-    handler = CallHandler(websocket, scenario, settings)
-    await handler.run()
+    # Log audio cache status for debugging
+    for node in scenario.nodes:
+        has_cache = node.audio_cache is not None
+        path = node.audio_cache.file_path if has_cache else "N/A"
+        logger.info(
+            "  Node %s (%s): audio_cache=%s, path=%s",
+            node.id, node.node_type.value, has_cache, path,
+        )
+
+    try:
+        handler = CallHandler(websocket, scenario, settings)
+        await handler.run()
+    except Exception:
+        logger.exception("CallHandler crashed for scenario %d", scenario_id)

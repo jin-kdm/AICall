@@ -95,6 +95,8 @@ class CallHandler:
                     break
         except WebSocketDisconnect:
             logger.info("WebSocket disconnected")
+        except Exception:
+            logger.exception("CallHandler run() crashed")
 
     async def _play_node_audio(self, node: Node):
         """Send pre-generated audio for a node in chunks."""
@@ -107,10 +109,27 @@ class CallHandler:
             self.vad.reset()
             return
 
-        raw_mulaw = await get_cached_audio(self.storage, node.audio_cache.file_path)
+        try:
+            raw_mulaw = await get_cached_audio(
+                self.storage, node.audio_cache.file_path
+            )
+        except Exception:
+            logger.exception(
+                "Failed to load audio for node %s (path=%s)",
+                node.id,
+                node.audio_cache.file_path,
+            )
+            # Fall through to listening so the call doesn't hang
+            self.phase = CallPhase.LISTENING
+            self.audio_buffer.clear()
+            self.vad.reset()
+            return
 
         logger.info(
-            "Playing audio for node %s (%d bytes)", node.id, len(raw_mulaw)
+            "Playing audio for node %s (%d bytes, %d chunks)",
+            node.id,
+            len(raw_mulaw),
+            (len(raw_mulaw) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE,
         )
 
         for i in range(0, len(raw_mulaw), self.CHUNK_SIZE):
@@ -140,6 +159,7 @@ class CallHandler:
                 "mark": {"name": mark_name},
             }
         )
+        logger.info("Audio + mark sent for node %s", node.id)
 
     async def _handle_mark(self, mark_name: str):
         """Handle mark acknowledgment from Twilio (audio playback finished)."""
