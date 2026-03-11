@@ -44,34 +44,40 @@ async def health():
 @app.get("/debug/storage")
 async def debug_storage():
     """Check which storage backend is active and test connectivity."""
-    from backend.services.storage_service import create_storage_service
+    from backend.services.storage_service import (
+        SupabaseStorageService,
+        create_storage_service,
+    )
 
-    storage = create_storage_service(settings)
-    storage_type = type(storage).__name__
-
-    # Test write/read/delete
-    test_path = "_health_check_test.bin"
-    test_data = b"healthcheck"
-    try:
-        await storage.upload(test_path, test_data)
-        read_back = await storage.download(test_path)
-        await storage.delete(test_path)
-        ok = read_back == test_data
-    except Exception as e:
-        ok = False
-        return {
-            "storage_type": storage_type,
-            "ok": False,
-            "error": str(e),
-            "supabase_configured": settings.use_supabase_storage,
-        }
-
-    return {
-        "storage_type": storage_type,
-        "ok": ok,
+    info = {
         "supabase_configured": settings.use_supabase_storage,
+        "supabase_url": settings.supabase_url[:30] + "..." if settings.supabase_url else "",
+        "supabase_key_set": bool(settings.supabase_key),
+        "supabase_bucket": settings.supabase_storage_bucket,
         "ws_base_url": settings.effective_ws_base_url,
     }
+
+    # Try Supabase directly to capture the exact error
+    if settings.use_supabase_storage:
+        try:
+            supa = SupabaseStorageService(
+                settings.supabase_url,
+                settings.supabase_key,
+                settings.supabase_storage_bucket,
+            )
+            info["supabase_init"] = "ok"
+            # Test write/read
+            await supa.upload("_test.bin", b"test")
+            data = await supa.download("_test.bin")
+            await supa.delete("_test.bin")
+            info["supabase_read_write"] = "ok"
+        except Exception as e:
+            info["supabase_init"] = f"FAILED: {type(e).__name__}: {e}"
+
+    storage = create_storage_service(settings)
+    info["active_storage"] = type(storage).__name__
+
+    return info
 
 
 app.add_middleware(
