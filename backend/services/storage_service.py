@@ -34,16 +34,17 @@ class LocalStorageService(StorageService):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "wb") as f:
             f.write(data)
-        return filepath
+        # Return just the relative filename (not full path)
+        # so download() can correctly resolve it
+        return path
 
     async def download(self, path: str) -> bytes:
-        # path could be absolute (legacy) or relative
-        filepath = path if os.path.isabs(path) else os.path.join(self.base_dir, path)
+        filepath = os.path.join(self.base_dir, path)
         with open(filepath, "rb") as f:
             return f.read()
 
     async def delete(self, path: str) -> None:
-        filepath = path if os.path.isabs(path) else os.path.join(self.base_dir, path)
+        filepath = os.path.join(self.base_dir, path)
         if os.path.exists(filepath):
             os.remove(filepath)
 

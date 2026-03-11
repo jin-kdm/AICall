@@ -69,7 +69,7 @@ async def handle_incoming_call(
         return Response(content=str(response), media_type="application/xml")
 
     # Route call to WebSocket with scenario
-    ws_url = f"{settings.ws_base_url}/ws/call/{scenario.id}"
+    ws_url = f"{settings.effective_ws_base_url}/ws/call/{scenario.id}"
     logger.info("Routing call to WebSocket: %s", ws_url)
 
     connect = Connect()

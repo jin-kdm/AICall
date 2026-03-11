@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings
 
 
@@ -41,7 +43,7 @@ class Settings(BaseSettings):
     # Server
     server_host: str = "0.0.0.0"
     server_port: int = 8000
-    ws_base_url: str = "wss://localhost:8000"
+    ws_base_url: str = ""
 
     # CORS
     cors_origins: str = "http://localhost:5173"
@@ -55,6 +57,17 @@ class Settings(BaseSettings):
     @property
     def use_supabase_storage(self) -> bool:
         return bool(self.supabase_url and self.supabase_key)
+
+    @property
+    def effective_ws_base_url(self) -> str:
+        """Auto-detect WebSocket URL from Railway or fall back to configured value."""
+        if self.ws_base_url:
+            return self.ws_base_url
+        # Railway provides RAILWAY_PUBLIC_DOMAIN automatically
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        if railway_domain:
+            return f"wss://{railway_domain}"
+        return "wss://localhost:8000"
 
 
 settings = Settings()
