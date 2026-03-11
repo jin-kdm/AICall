@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # VAD settings
     vad_aggressiveness: int = 2
-    vad_silence_timeout_ms: int = 800
+    vad_silence_timeout_ms: int = 500
     vad_min_speech_ms: int = 250
 
     # Audio cache

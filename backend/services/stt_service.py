@@ -6,6 +6,16 @@ from openai import AsyncOpenAI
 
 from backend.config import Settings
 
+# Shared client — avoids per-call connection setup overhead
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client(settings: Settings) -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _openai_client
+
 
 class STTService(ABC):
     @abstractmethod
@@ -16,7 +26,7 @@ class STTService(ABC):
 
 class OpenAIWhisperService(STTService):
     def __init__(self, settings: Settings):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = _get_openai_client(settings)
         self.model = settings.stt_model
 
     async def transcribe(self, audio_pcm_16khz: bytes) -> str:

@@ -9,6 +9,16 @@ from backend.models import BranchDecisionResult
 
 logger = logging.getLogger(__name__)
 
+# Shared client — avoids per-call connection setup overhead
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client(settings: Settings) -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _openai_client
+
 
 class BranchService(ABC):
     @abstractmethod
@@ -24,7 +34,7 @@ class BranchService(ABC):
 
 class OpenAIBranchService(BranchService):
     def __init__(self, settings: Settings):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = _get_openai_client(settings)
         self.model = settings.branch_model
 
     async def decide(
@@ -34,26 +44,22 @@ class OpenAIBranchService(BranchService):
         current_script: str,
     ) -> BranchDecisionResult:
         conditions_text = "\n".join(
-            f'- Condition: "{c["condition"]}" -> target: {c["target_node_id"]}'
+            f'- "{c["condition"]}" -> {c["target_node_id"]}'
             for c in conditions
         )
 
         system_prompt = (
-            "You are a phone call routing assistant. You analyze what a caller "
-            "said and determine which branch condition best matches their response.\n\n"
-            "Rules:\n"
-            "- You MUST select exactly one condition from the provided list.\n"
-            "- Match based on semantic meaning, not exact wording.\n"
-            "- If no condition clearly matches, select the most general/default condition.\n"
-            '- Respond with ONLY a JSON object: {"matched_condition": "...", '
-            '"target_node_id": "...", "confidence": 0.0-1.0}'
+            "You route phone calls. Given caller speech and branch conditions, "
+            "select the best-matching condition.\n"
+            "Rules: select exactly one condition by semantic meaning. "
+            "If unclear, pick the most general/default.\n"
+            'Respond ONLY with JSON: {"matched_condition":"...","target_node_id":"...","confidence":0.0-1.0}'
         )
 
         user_prompt = (
-            f'The automated system just said:\n"{current_script}"\n\n'
-            f'The caller responded:\n"{transcription}"\n\n'
-            f"Available branch conditions:\n{conditions_text}\n\n"
-            "Which condition best matches the caller's response?"
+            f'System said: "{current_script}"\n'
+            f'Caller said: "{transcription}"\n'
+            f"Conditions:\n{conditions_text}"
         )
 
         response = await self.client.chat.completions.create(
@@ -64,7 +70,7 @@ class OpenAIBranchService(BranchService):
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=150,
+            max_tokens=100,
         )
 
         result_json = json.loads(response.choices[0].message.content)

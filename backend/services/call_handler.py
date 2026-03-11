@@ -30,7 +30,7 @@ class CallPhase(str, enum.Enum):
 class CallHandler:
     """Manages a single active call via Twilio bidirectional Media Stream."""
 
-    # 1-second chunks → ~3 messages for a 3s clip (was 640B = 37 messages)
+    # Send audio in ~1-second chunks (fewer WS messages = less overhead)
     CHUNK_SIZE = 8000
 
     def __init__(
@@ -57,7 +57,7 @@ class CallHandler:
         self.barge_in_speech_count = 0
         self.BARGE_IN_THRESHOLD = 150  # 150 frames × 20ms = 3 seconds
 
-        # Audio data cache: node_id -> mulaw bytes (fetched on demand from DB)
+        # All audio data: node_id -> mulaw bytes (bulk-loaded at start)
         self._audio_data: dict[str, bytes] = {}
 
     def _find_start_node(self) -> Node:
@@ -74,54 +74,34 @@ class CallHandler:
                 return node
         return None
 
-    # --- Audio fetching (on-demand from DB) ---
+    # --- Bulk audio loading (single DB query for ALL nodes) ---
 
-    async def _fetch_audio(self, node_id: str) -> bytes | None:
-        """Fetch audio_data for a single node (with in-memory cache)."""
-        if node_id in self._audio_data:
-            return self._audio_data[node_id]
-
-        async with async_session() as db:
-            result = await db.execute(
-                sa_select(AudioCache.audio_data)
-                .where(AudioCache.node_id == node_id)
-            )
-            data = result.scalar_one_or_none()
-
-        if data:
-            self._audio_data[node_id] = data
-        return data
-
-    async def _prefetch_next_nodes(self, current_node_id: str):
-        """Batch-fetch audio for all potential next nodes (background)."""
-        next_ids = [
-            e.target_node_id
-            for e in self.scenario.edges
-            if e.source_node_id == current_node_id
-            and e.target_node_id not in self._audio_data
-        ]
-        if not next_ids:
+    async def _load_all_audio(self):
+        """Load audio_data for ALL nodes in the scenario in one DB query."""
+        node_ids = [n.id for n in self.scenario.nodes]
+        if not node_ids:
             return
 
         async with async_session() as db:
             result = await db.execute(
                 sa_select(AudioCache.node_id, AudioCache.audio_data)
-                .where(AudioCache.node_id.in_(next_ids))
+                .where(AudioCache.node_id.in_(node_ids))
             )
             for row in result.all():
                 if row.audio_data:
                     self._audio_data[row.node_id] = row.audio_data
 
-        logger.info("Pre-fetched audio for %d next node(s)", len(next_ids))
+        logger.info(
+            "Bulk-loaded audio for %d/%d nodes",
+            len(self._audio_data), len(node_ids),
+        )
 
     # --- Main loop ---
 
     async def run(self):
         """Main loop: receive Twilio WebSocket messages and dispatch."""
-        # Start fetching start-node audio NOW (before Twilio sends 'start')
-        start_audio_task = asyncio.create_task(
-            self._fetch_audio(self.current_node.id)
-        )
+        # Bulk-load ALL audio NOW (before Twilio sends 'start')
+        audio_load_task = asyncio.create_task(self._load_all_audio())
 
         try:
             while True:
@@ -140,8 +120,8 @@ class CallHandler:
                         self.stream_sid,
                         self.call_sid,
                     )
-                    # Ensure start-node audio is ready (likely already done)
-                    await start_audio_task
+                    # Ensure all audio is ready (likely already done)
+                    await audio_load_task
                     await self._play_node_audio(self.current_node)
                 elif event == "media":
                     await self._handle_incoming_audio(msg["media"]["payload"])
@@ -162,7 +142,7 @@ class CallHandler:
         self.phase = CallPhase.PLAYING_AUDIO
         self.barge_in_speech_count = 0
 
-        raw_mulaw = await self._fetch_audio(node.id)
+        raw_mulaw = self._audio_data.get(node.id)
 
         if not raw_mulaw:
             logger.warning("No audio data for node %s, skipping", node.id)
@@ -205,9 +185,6 @@ class CallHandler:
                 "mark": {"name": mark_name},
             }
         )
-
-        # Pre-fetch next nodes' audio in background while this one plays
-        asyncio.create_task(self._prefetch_next_nodes(node.id))
 
         logger.info("Audio + mark sent for node %s", node.id)
 
@@ -264,13 +241,9 @@ class CallHandler:
         """STT -> Branch Decision -> Play Next Node audio."""
         t_start = time.monotonic()
 
-        # Pre-fetch all possible next nodes in PARALLEL with STT+branch
-        prefetch_task = asyncio.create_task(
-            self._prefetch_next_nodes(self.current_node.id)
-        )
-
-        # Convert mulaw 8kHz -> PCM 16kHz for Whisper
-        pcm_audio = mulaw_8khz_to_pcm_16khz(bytes(self.audio_buffer))
+        # Convert mulaw 8kHz -> PCM 16kHz in thread pool (CPU-bound)
+        raw_audio = bytes(self.audio_buffer)
+        pcm_audio = await asyncio.to_thread(mulaw_8khz_to_pcm_16khz, raw_audio)
 
         # STT
         transcription = await self.stt.transcribe(pcm_audio)
@@ -284,7 +257,6 @@ class CallHandler:
             self.phase = CallPhase.LISTENING
             self.audio_buffer.clear()
             self.vad.reset()
-            prefetch_task.cancel()
             return
 
         # Get outgoing edges from current node
@@ -298,7 +270,6 @@ class CallHandler:
             logger.warning("No outgoing edges from node %s", self.current_node.id)
             self.phase = CallPhase.ENDED
             await self._hangup_call()
-            prefetch_task.cancel()
             return
 
         # Branch decision
@@ -331,9 +302,6 @@ class CallHandler:
 
         self.current_node = target_node
         self.audio_buffer.clear()
-
-        # Wait for prefetch to finish (audio likely already cached)
-        await prefetch_task
 
         t_total = time.monotonic()
         logger.info("Total processing: %.0fms", (t_total - t_start) * 1000)
