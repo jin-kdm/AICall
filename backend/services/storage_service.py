@@ -58,16 +58,17 @@ class SupabaseStorageService(StorageService):
         self._ensure_bucket()
 
     def _ensure_bucket(self):
-        """Ensure the storage bucket exists. Raises if it cannot be created."""
+        """Ensure the storage bucket exists; try to create if not found."""
+        # 1. Check if bucket is accessible
         try:
             self.client.storage.get_bucket(self.bucket)
             logger.info("Supabase bucket '%s' found", self.bucket)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.info("Bucket get failed (%s), trying to create...", e)
 
-        # Try to create with public: True (avoids RLS issues with anon key)
-        for public in [False, True]:
+        # 2. Try to create (may fail with anon key — that's OK)
+        for public in [True, False]:
             try:
                 self.client.storage.create_bucket(
                     self.bucket,
@@ -80,9 +81,36 @@ class SupabaseStorageService(StorageService):
             except Exception as e:
                 logger.debug("Bucket create attempt (public=%s): %s", public, e)
 
+        # 3. Bucket might exist but get_bucket fails with anon key (RLS).
+        #    Try a test upload — if the bucket exists, file ops may still work.
+        logger.warning(
+            "Cannot list/create bucket '%s' (likely RLS). "
+            "Attempting direct file operation to verify access...",
+            self.bucket,
+        )
+        try:
+            self.client.storage.from_(self.bucket).upload(
+                "_init_test.bin",
+                b"test",
+                file_options={"content-type": "application/octet-stream"},
+            )
+            # Clean up
+            try:
+                self.client.storage.from_(self.bucket).remove(["_init_test.bin"])
+            except Exception:
+                pass
+            logger.info(
+                "Supabase bucket '%s' is usable (file ops work despite RLS on bucket API)",
+                self.bucket,
+            )
+            return
+        except Exception as e:
+            logger.error("Supabase file operation also failed: %s", e)
+
         raise RuntimeError(
-            f"Cannot access or create Supabase bucket '{self.bucket}'. "
-            "Please create it manually in the Supabase dashboard."
+            f"Cannot access Supabase bucket '{self.bucket}'. "
+            "Please create it manually in the Supabase dashboard: "
+            "Storage → New bucket → Name: 'audio-cache' → Public bucket: ON"
         )
 
     async def upload(self, path: str, data: bytes) -> str:
