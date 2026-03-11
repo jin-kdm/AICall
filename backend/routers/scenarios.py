@@ -226,7 +226,9 @@ async def batch_update_edges(
     response_model=AudioGenerationResult,
 )
 async def generate_audio(
-    scenario_id: int, db: AsyncSession = Depends(get_db)
+    scenario_id: int,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
 ):
     scenario = await db.get(Scenario, scenario_id)
     if not scenario:
@@ -234,5 +236,5 @@ async def generate_audio(
 
     from backend.services.tts_service import generate_audio_for_scenario
 
-    result = await generate_audio_for_scenario(scenario, db, settings)
+    result = await generate_audio_for_scenario(scenario, db, settings, force=force)
     return result

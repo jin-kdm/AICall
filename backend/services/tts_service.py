@@ -67,7 +67,8 @@ def create_tts_service(settings: Settings) -> TTSService:
 
 
 async def generate_audio_for_scenario(
-    scenario: Scenario, db: AsyncSession, settings: Settings
+    scenario: Scenario, db: AsyncSession, settings: Settings,
+    force: bool = False,
 ) -> AudioGenerationResult:
     """Pre-generate all TTS audio for a scenario's nodes."""
     tts = create_tts_service(settings)
@@ -81,8 +82,8 @@ async def generate_audio_for_scenario(
 
         script_hash = hashlib.sha256(node.script.encode()).hexdigest()
 
-        # Check if cache is valid
-        if node.audio_cache and node.audio_cache.script_hash == script_hash:
+        # Check if cache is valid (skip if hash matches and not forced)
+        if not force and node.audio_cache and node.audio_cache.script_hash == script_hash:
             result.skipped += 1
             continue
 
