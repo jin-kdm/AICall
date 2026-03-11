@@ -49,6 +49,10 @@ class CallHandler:
         self.mark_counter = 0
         self.pending_marks: dict[str, str] = {}
 
+        # Barge-in requires consecutive speech frames to avoid false triggers
+        self.barge_in_speech_count = 0
+        self.BARGE_IN_THRESHOLD = 5  # 5 frames × 20ms = 100ms of speech needed
+
     def _find_start_node(self) -> Node:
         for node in self.scenario.nodes:
             if node.node_type == NodeType.START:
@@ -99,6 +103,7 @@ class CallHandler:
     async def _play_node_audio(self, node: Node):
         """Send pre-generated audio for a node in chunks."""
         self.phase = CallPhase.PLAYING_AUDIO
+        self.barge_in_speech_count = 0
 
         if not node.audio_cache or not node.audio_cache.audio_data:
             logger.warning(
@@ -167,13 +172,22 @@ class CallHandler:
         audio_bytes = base64.b64decode(payload_b64)
 
         if self.phase == CallPhase.PLAYING_AUDIO:
-            # Barge-in detection: if caller speaks during playback, interrupt
+            # Barge-in: require consecutive speech frames to avoid false triggers
             if self.vad.is_speech_frame(audio_bytes):
-                logger.info("Barge-in detected, clearing audio buffer")
-                await self._clear_playback()
-                self.phase = CallPhase.LISTENING
-                self.audio_buffer.clear()
-                self.vad.reset()
+                self.barge_in_speech_count += 1
+                if self.barge_in_speech_count >= self.BARGE_IN_THRESHOLD:
+                    logger.info(
+                        "Barge-in confirmed (%d consecutive speech frames), clearing playback",
+                        self.barge_in_speech_count,
+                    )
+                    await self._clear_playback()
+                    self.phase = CallPhase.LISTENING
+                    self.audio_buffer.clear()
+                    self.vad.reset()
+                    self.barge_in_speech_count = 0
+            else:
+                # Reset counter on non-speech frame
+                self.barge_in_speech_count = 0
             return
 
         if self.phase != CallPhase.LISTENING:
