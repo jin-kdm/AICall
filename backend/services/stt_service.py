@@ -7,8 +7,19 @@ try:
 except ImportError:
     import audioop_lts as audioop
 
+from openai import AsyncOpenAI
+
 from backend.config import Settings
-from backend.services.openai_client import get_openai_client
+
+# Shared client — avoids per-call connection setup overhead
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client(settings: Settings) -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _openai_client
 
 
 class STTService(ABC):
@@ -20,7 +31,7 @@ class STTService(ABC):
 
 class OpenAIWhisperService(STTService):
     def __init__(self, settings: Settings):
-        self.client = get_openai_client(settings)
+        self.client = _get_openai_client(settings)
         self.model = settings.stt_model
 
     async def transcribe(self, mulaw_8khz: bytes) -> str:

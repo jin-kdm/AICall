@@ -12,7 +12,6 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from backend.config import Settings
 from backend.database import async_session
 from backend.models import AudioCache, Node, NodeType, Scenario
-from backend.services.audio_branch_service import create_audio_branch_service
 from backend.services.branch_service import create_branch_service
 from backend.services.stt_service import create_stt_service
 from backend.services.vad_service import VADService
@@ -47,8 +46,6 @@ class CallHandler:
 
         self.audio_buffer = bytearray()
         self.vad = VADService(settings)
-        self.audio_branch = create_audio_branch_service(settings)
-        # Fallback services (used when combined audio-branch call fails)
         self.stt = create_stt_service(settings)
         self.branch = create_branch_service(settings)
 
@@ -240,14 +237,24 @@ class CallHandler:
     # --- Speech processing ---
 
     async def _process_speech(self):
-        """Analyse caller speech and play the matching branch audio.
-
-        Primary path: combined audio-branch (1 API call).
-        Fallback:     separate STT → Branch (2 API calls).
-        """
+        """STT -> Branch Decision -> Play Next Node audio."""
         t_start = time.monotonic()
 
-        # Prepare outgoing edges first (needed by both paths)
+        # Pass raw mulaw 8kHz directly to STT (no resample needed)
+        transcription = await self.stt.transcribe(bytes(self.audio_buffer))
+        t_stt = time.monotonic()
+        logger.info(
+            "STT in %.0fms: %r", (t_stt - t_start) * 1000, transcription,
+        )
+
+        if not transcription or not transcription.strip():
+            logger.info("Empty transcription, returning to listening")
+            self.phase = CallPhase.LISTENING
+            self.audio_buffer.clear()
+            self.vad.reset()
+            return
+
+        # Get outgoing edges from current node
         outgoing_edges = [
             e
             for e in self.scenario.edges
@@ -260,6 +267,7 @@ class CallHandler:
             await self._hangup_call()
             return
 
+        # Branch decision
         conditions = [
             {
                 "condition": e.condition_label,
@@ -267,63 +275,16 @@ class CallHandler:
             }
             for e in outgoing_edges
         ]
-
-        audio_bytes = bytes(self.audio_buffer)
-        decision = None
-        transcription = ""
-
-        # --- Primary: combined audio-branch (single API call) ---
-        try:
-            decision, transcription = (
-                await self.audio_branch.decide_from_audio(
-                    audio_bytes, conditions, self.current_node.script
-                )
-            )
-            logger.info(
-                "Combined AudioBranch in %.0fms: %r -> %s",
-                (time.monotonic() - t_start) * 1000,
-                transcription,
-                decision.target_node_id,
-            )
-        except Exception:
-            logger.warning(
-                "Combined AudioBranch failed, falling back to STT+Branch",
-                exc_info=True,
-            )
-
-            # --- Fallback: separate STT → Branch ---
-            transcription = await self.stt.transcribe(audio_bytes)
-            t_stt = time.monotonic()
-            logger.info(
-                "STT fallback in %.0fms: %r",
-                (t_stt - t_start) * 1000,
-                transcription,
-            )
-
-            if not transcription or not transcription.strip():
-                logger.info("Empty transcription, returning to listening")
-                self.phase = CallPhase.LISTENING
-                self.audio_buffer.clear()
-                self.vad.reset()
-                return
-
-            decision = await self.branch.decide(
-                transcription, conditions, self.current_node.script
-            )
-            logger.info(
-                "Branch fallback in %.0fms: %s -> %s",
-                (time.monotonic() - t_stt) * 1000,
-                decision.matched_condition,
-                decision.target_node_id,
-            )
-
-        # Empty transcription from combined call
-        if not transcription or not transcription.strip():
-            logger.info("Empty transcription, returning to listening")
-            self.phase = CallPhase.LISTENING
-            self.audio_buffer.clear()
-            self.vad.reset()
-            return
+        decision = await self.branch.decide(
+            transcription, conditions, self.current_node.script
+        )
+        t_branch = time.monotonic()
+        logger.info(
+            "Branch in %.0fms: %s -> %s",
+            (t_branch - t_stt) * 1000,
+            decision.matched_condition,
+            decision.target_node_id,
+        )
 
         # Find target node
         target_node = self._find_node_by_id(decision.target_node_id)
@@ -337,9 +298,8 @@ class CallHandler:
         self.current_node = target_node
         self.audio_buffer.clear()
 
-        logger.info(
-            "Total processing: %.0fms", (time.monotonic() - t_start) * 1000
-        )
+        t_total = time.monotonic()
+        logger.info("Total processing: %.0fms", (t_total - t_start) * 1000)
 
         await self._play_node_audio(target_node)
 

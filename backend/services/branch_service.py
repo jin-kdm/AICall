@@ -2,11 +2,22 @@ import json
 import logging
 from abc import ABC, abstractmethod
 
+from openai import AsyncOpenAI
+
 from backend.config import Settings
 from backend.models import BranchDecisionResult
-from backend.services.openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
+
+# Shared client — avoids per-call connection setup overhead
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client(settings: Settings) -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _openai_client
 
 
 class BranchService(ABC):
@@ -23,7 +34,7 @@ class BranchService(ABC):
 
 class OpenAIBranchService(BranchService):
     def __init__(self, settings: Settings):
-        self.client = get_openai_client(settings)
+        self.client = _get_openai_client(settings)
         self.model = settings.branch_model
 
     async def decide(
