@@ -2,6 +2,11 @@ import io
 import wave
 from abc import ABC, abstractmethod
 
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+
 from openai import AsyncOpenAI
 
 from backend.config import Settings
@@ -19,8 +24,8 @@ def _get_openai_client(settings: Settings) -> AsyncOpenAI:
 
 class STTService(ABC):
     @abstractmethod
-    async def transcribe(self, audio_pcm_16khz: bytes) -> str:
-        """Transcribe PCM 16-bit 16kHz mono audio to text."""
+    async def transcribe(self, mulaw_8khz: bytes) -> str:
+        """Transcribe mulaw 8kHz mono audio to text."""
         pass
 
 
@@ -29,11 +34,15 @@ class OpenAIWhisperService(STTService):
         self.client = _get_openai_client(settings)
         self.model = settings.stt_model
 
-    async def transcribe(self, audio_pcm_16khz: bytes) -> str:
-        if len(audio_pcm_16khz) < 1600:  # less than 50ms of audio
+    async def transcribe(self, mulaw_8khz: bytes) -> str:
+        # 160 bytes of mulaw ≈ 20ms at 8kHz — reject tiny fragments
+        if len(mulaw_8khz) < 160:
             return ""
 
-        wav_buffer = self._pcm_to_wav(audio_pcm_16khz, sample_rate=16000)
+        # Decode mulaw → PCM 16-bit at native 8kHz (NO resample to 16kHz).
+        # Whisper / gpt-4o-mini-transcribe handle any sample rate internally.
+        pcm_8k = audioop.ulaw2lin(mulaw_8khz, 2)
+        wav_buffer = self._pcm_to_wav(pcm_8k, sample_rate=8000)
 
         transcript = await self.client.audio.transcriptions.create(
             model=self.model,
@@ -57,7 +66,7 @@ class OpenAIWhisperService(STTService):
 class SonioxSTTService(STTService):
     """Future: Soniox provider."""
 
-    async def transcribe(self, audio_pcm_16khz: bytes) -> str:
+    async def transcribe(self, mulaw_8khz: bytes) -> str:
         raise NotImplementedError("Soniox STT not yet implemented")
 
 

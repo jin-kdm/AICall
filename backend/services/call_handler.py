@@ -12,7 +12,6 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from backend.config import Settings
 from backend.database import async_session
 from backend.models import AudioCache, Node, NodeType, Scenario
-from backend.services.audio_utils import mulaw_8khz_to_pcm_16khz
 from backend.services.branch_service import create_branch_service
 from backend.services.stt_service import create_stt_service
 from backend.services.vad_service import VADService
@@ -241,12 +240,8 @@ class CallHandler:
         """STT -> Branch Decision -> Play Next Node audio."""
         t_start = time.monotonic()
 
-        # Convert mulaw 8kHz -> PCM 16kHz in thread pool (CPU-bound)
-        raw_audio = bytes(self.audio_buffer)
-        pcm_audio = await asyncio.to_thread(mulaw_8khz_to_pcm_16khz, raw_audio)
-
-        # STT
-        transcription = await self.stt.transcribe(pcm_audio)
+        # Pass raw mulaw 8kHz directly to STT (no resample needed)
+        transcription = await self.stt.transcribe(bytes(self.audio_buffer))
         t_stt = time.monotonic()
         logger.info(
             "STT in %.0fms: %r", (t_stt - t_start) * 1000, transcription,

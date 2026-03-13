@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # STT settings
     stt_provider: str = "openai"
-    stt_model: str = "whisper-1"
+    stt_model: str = "gpt-4o-mini-transcribe"
 
     # Branch decision settings
     branch_model: str = "gpt-4o-mini"
