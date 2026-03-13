@@ -27,9 +27,12 @@ class Settings(BaseSettings):
     # Branch decision settings
     branch_model: str = "gpt-4o-mini"
 
+    # Combined audio-branch model (STT + branch in one call)
+    audio_branch_model: str = "gpt-4o-mini-audio-preview"
+
     # VAD settings
     vad_aggressiveness: int = 2
-    vad_silence_timeout_ms: int = 500
+    vad_silence_timeout_ms: int = 400
     vad_min_speech_ms: int = 250
 
     # Audio cache
